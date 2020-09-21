@@ -1,0 +1,106 @@
+---
+title: "Weight Lifting Exercise"
+author: "Vimal Simha"
+date: "4/27/2020"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(caret)
+library(ggplot2)
+library(randomForest)
+```
+
+## R Markdown
+
+## Exploratory Analysis and Data Cleaning
+
+
+We load the training dataset and examine it using the head command. There are 19,622 observations of 160 variables. A cursory inspection reveals a substantial number of NAs, and further investigation reveals the presence of #DIV/0 values. About 98% of the observations of 67 variables are recorded as NA and a further 33 variables as #DIV/0. Since a large fraction of values are missing, interpolation is unlikely to work. Therefore, we eliminate these 100 variables from our analysis. A further 7 variables are the index number, username, timestamp and window number which we also eliminate. This leaves us with 52 covariates which we will use to predict the classe variable.
+
+```{r , warning=FALSE, message=FALSE, quietly=TRUE}
+set.seed(10)
+training <- read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv",na.strings=c("NA","NaN","","#DIV/0!"))
+training <- training[,!sapply(training, function(x) mean(is.na(x)))>0.5]
+training <- training[-c(1:7)] 
+```
+
+To help better assess the out of sample errors, we divide the training dataset into two subsamples, namely, a subtraining dataset and a subtesting dataset containing 75% and 25% of the observations respectively.
+
+```{r, warning=FALSE, message=FALSE, quietly=TRUE}
+inTrain <- createDataPartition(y=training$classe,p=0.75,list=FALSE)
+subtraining <- training[inTrain,]
+subtesting <- training[-inTrain,]
+```
+
+## Preprocessing
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, quietly=TRUE}
+M <- abs(cor(training[,-53]))
+diag(M) <- 0
+nc <- which(M > 0.8, arr.ind = T)
+Number_of_Correlations = length(nc)/2
+```
+
+Examining the correlations of variables shows that several are highly correlated. 38 pairs of variables are strongly correlated (correlation coefficient > 0.8), We perform a principal component analysis (PCA) to reduce the number of variables and reduce the noise.
+
+## Predictor Models
+
+The problem is to classify the weight lifting exercise into one of five classes based on the exercise performance data that we have now reduced to 52 variables.
+
+We will consider the following classification models:
+- Regression and Classification Tree 
+- Bagging (Bootstrap Aggregating) 
+- Random Forest 
+- Generalised Boosting Regression
+
+We train each model using the subtraining subset of the training data. We then use the model to predict the classe variable in the subtesting dataset. The confusion matrix for each model showing its accuracy, sensitivity and specificity are shown below. These represent out of sample errors as these data have not been used for training the model.
+
+### Recursive Partitioning and Regression Tree 
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, quietly=TRUE}
+modrpart <- train(classe ~ .,method="rpart",preProcess="pca",data=subtraining)
+confusionMatrix(subtesting$classe,predict(modrpart,subtesting))
+```
+
+### Bagging
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, quietly=TRUE}
+modtreebag <- train(classe ~ .,method="treebag",preProcess="pca",data=subtraining)
+confusionMatrix(subtesting$classe,predict(modtreebag,subtesting))
+```
+
+### Random Forest
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, quietly=TRUE}
+modrf <- randomForest(classe ~ .,preProcess="pca",data=subtraining)
+confusionMatrix(subtesting$classe,predict(modrf,subtesting))
+```
+
+### Generalised Boosted Regression
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, quietly=TRUE}
+modgbm <- train(classe ~ .,method="gbm",preProcess="pca",data=subtraining,verbose=F)
+confusionMatrix(subtesting$classe,predict(modgbm,subtesting))
+```
+
+## Final Model
+
+It is possible to combine the predictions of different methods to further enhance accuracy. However, we do not believe that is necessary in this instance because the Random Forest model can predict the correct outcome with an accuracy of 99.5% (95% confidence interval between 99.2% and 99.6%).
+
+We apply our Random Forest model tuned on the training dataset to the testing data. First, we clean and pre-process the test data, through the same pipeline as the training dataset.
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, quietly=TRUE}
+testing <- read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv",na.strings=c("NA","NaN","","#DIV/0!"))
+testing <- testing[,!sapply(testing, function(x) mean(is.na(x)))>0.5]
+testing <- testing[-c(1:7)] 
+```
+
+We then apply our model to generate predictions on the test dataset. As there are 20 observations, we do not expect more than one prediction to be incorrect given our out of sample errors that we have stated earlier.
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, quietly=TRUE}
+preds <- predict(modrf,testing)
+preds
+```
+
